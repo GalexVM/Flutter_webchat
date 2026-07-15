@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:mongo_dart/mongo_dart.dart' as mongo;
+import 'configuration_screen.dart';
 
 void main() {
   runApp(const ChatApp());
@@ -21,7 +22,11 @@ class ChatApp extends StatelessWidget {
     return MaterialApp(
       title: 'Chat Demo',
       theme: ThemeData(
-        primarySwatch: Colors.blue,
+        primaryColor: const Color(0xFF075E54),
+        colorScheme: ColorScheme.fromSwatch().copyWith(
+          primary: const Color(0xFF075E54),
+          secondary: const Color(0xFF25D366),
+        ),
         visualDensity: VisualDensity.adaptivePlatformDensity,
       ),
       home: const MainScreen(),
@@ -38,11 +43,14 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _controller = TextEditingController();
-  final TextEditingController _userIdController = TextEditingController(text: '123456789');
+  final TextEditingController _userIdController = TextEditingController(
+    text: '123456789',
+  );
   final List<ChatMessage> _messages = [];
   final ScrollController _scrollController = ScrollController();
 
-  final String _backendUrl = 'http://localhost:8001/consulta-webchat';
+  final String _backendUrl =
+      'https://5b7d-45-177-196-205.ngrok-free.app/rag/query';
 
   Future<void> _sendMessage() async {
     if (_controller.text.isEmpty) return;
@@ -57,25 +65,54 @@ class _ChatScreenState extends State<ChatScreen> {
       curve: Curves.easeOut,
     );
     try {
+      final uri = Uri.parse(_backendUrl).replace(queryParameters: {
+        'query': textToSend,
+        'phone_id': _userIdController.text,
+        'chunks': '500',
+      });
+
+      print('DEBUG: Enviando petición a: $uri');
+
       final response = await http.post(
-        Uri.parse(_backendUrl),
+        uri,
         headers: {'Content-Type': 'application/json'},
-        body: json.encode({'message': textToSend, 'user_id': _userIdController.text}),
       );
+
+      print('DEBUG: Respuesta recibida. Código: ${response.statusCode}');
+      print('DEBUG: Cuerpo de la respuesta: ${response.body}');
+
       if (response.statusCode == 200) {
+        final decodedBody = json.decode(response.body);
+        final messageText = decodedBody['response']['response']['response'];
         setState(() {
-          _messages.add(ChatMessage(text: json.decode(response.body)['response'], isUser: false));
+          _messages.add(
+            ChatMessage(
+              text: messageText,
+              isUser: false,
+            ),
+          );
         });
       } else {
         // Error del lado del servidor (ej. 404, 500)
         setState(() {
-          _messages.add(ChatMessage(text: 'Error del servidor: ${response.statusCode}', isUser: false));
+          _messages.add(
+            ChatMessage(
+              text: 'Error del servidor: ${response.statusCode}. Revisa la consola de depuración para más detalles.',
+              isUser: false,
+            ),
+          );
         });
       }
     } catch (e) {
       // Error de conexión o al procesar la respuesta (ej. JSON malformado, tipo incorrecto)
+      print('DEBUG: Ha ocurrido una excepción: $e');
       setState(() {
-        _messages.add(ChatMessage(text: 'Error: No se pudo procesar la respuesta del servidor.', isUser: false));
+        _messages.add(
+          ChatMessage(
+            text: 'Error: No se pudo procesar la respuesta. Revisa la consola de depuración.',
+            isUser: false,
+          ),
+        );
       });
     }
     _scrollController.animateTo(
@@ -94,27 +131,48 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFECE5DD),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF111111),
+        backgroundColor: const Color(0xFF075E54),
         title: Row(
           children: [
-            // Asegúrate de que la ruta coincida con la ubicación de tu logo
-            Image.asset('assets/logo.png', height: 120), // Altura ajustada para el AppBar
-            const SizedBox(width: 30),
-            const Text(
-              'IA Service Chat. Pre Alfa.',
-              style: TextStyle(
-                color: Colors.white,
+            ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: Image.asset(
+                'assets/logo.png',
+                height: 40,
+                width: 40,
+                fit: BoxFit.cover,
+                errorBuilder: (c, e, s) =>
+                    const Icon(Icons.person, color: Colors.white),
               ),
+            ),
+            const SizedBox(width: 10),
+            const Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'IA Service',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text(
+                  'Pre Alfa',
+                  style: TextStyle(color: Colors.white70, fontSize: 13),
+                ),
+              ],
             ),
             const Spacer(),
             SizedBox(
-              width: 200,
+              width: 140,
               child: TextField(
                 controller: _userIdController,
-                style: const TextStyle(color: Colors.white),
+                style: const TextStyle(color: Colors.white, fontSize: 14),
                 decoration: const InputDecoration(
-                  labelText: 'Número emisor (user_id)',
+                  labelText: 'ID',
                   labelStyle: TextStyle(color: Colors.white70),
                   enabledBorder: OutlineInputBorder(
                     borderSide: BorderSide(color: Colors.white54),
@@ -123,7 +181,10 @@ class _ChatScreenState extends State<ChatScreen> {
                     borderSide: BorderSide(color: Colors.white),
                   ),
                   isDense: true,
-                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                 ),
               ),
             ),
@@ -136,53 +197,106 @@ class _ChatScreenState extends State<ChatScreen> {
           ],
         ),
       ),
-      body:
-      Column(
+      body: Column(
         children: [
-        Expanded(
-          child:
-          ListView.builder(
-            controller: _scrollController,
-            itemCount: _messages.length,
-            itemBuilder: (context, index) {
-              final message = _messages[index];
-              return ListTile(
-                title: Align(
-                  alignment: message.isUser ? Alignment.centerRight : Alignment.centerLeft,
-                  child:
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: message.isUser ? Colors.blue[100] : Colors.grey[200],
-                      borderRadius: BorderRadius.circular(10),
+          Expanded(
+            child: ListView.builder(
+              controller: _scrollController,
+              itemCount: _messages.length,
+              itemBuilder: (context, index) {
+                final message = _messages[index];
+                return Padding(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 4.0,
+                    horizontal: 14.0,
+                  ),
+                  child: Align(
+                    alignment: message.isUser
+                        ? Alignment.centerRight
+                        : Alignment.centerLeft,
+                    child: Container(
+                      constraints: BoxConstraints(
+                        maxWidth: MediaQuery.of(context).size.width * 0.75,
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: message.isUser
+                            ? const Color(0xFFDCF8C6)
+                            : Colors.white,
+                        borderRadius: BorderRadius.only(
+                          topLeft: const Radius.circular(12),
+                          topRight: const Radius.circular(12),
+                          bottomLeft: Radius.circular(message.isUser ? 12 : 0),
+                          bottomRight: Radius.circular(message.isUser ? 0 : 12),
+                        ),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Colors.black12,
+                            blurRadius: 1,
+                            offset: Offset(0, 1),
+                          ),
+                        ],
+                      ),
+                      child: Text(
+                        message.text,
+                        style: const TextStyle(
+                          fontSize: 16.0,
+                          color: Colors.black87,
+                        ),
+                      ),
                     ),
-                    child: Text(message.text, style: const TextStyle(fontSize: 25.0)), // Aumentado el tamaño de la fuente
+                  ),
+                );
+              },
+            ),
+          ),
+          Container(
+            color: Colors.transparent,
+            padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(24.0),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Colors.black12,
+                          blurRadius: 1,
+                          offset: Offset(0, 1),
+                        ),
+                      ],
+                    ),
+                    child: TextField(
+                      controller: _controller,
+                      decoration: const InputDecoration(
+                        hintText: 'Mensaje',
+                        border: InputBorder.none,
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 20.0,
+                          vertical: 14.0,
+                        ),
+                      ),
+                      onSubmitted: (_) => _sendMessage(),
+                    ),
                   ),
                 ),
-              );
-            },
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.all(8.0),
-          child:
-          Row(
-            children: [
-            Expanded(
-              child:
-              TextField(
-                controller: _controller,
-                decoration: const InputDecoration(hintText: 'Escribe un mensaje...'),
-                onSubmitted: (_) => _sendMessage(),
-              ),
+                const SizedBox(width: 8.0),
+                CircleAvatar(
+                  backgroundColor: const Color(0xFF128C7E),
+                  radius: 24,
+                  child: IconButton(
+                    icon: const Icon(Icons.send, color: Colors.white),
+                    onPressed: _sendMessage,
+                  ),
+                ),
+              ],
             ),
-            IconButton(
-              icon: const Icon(Icons.send),
-              onPressed: _sendMessage,
-            ),
-            ],
           ),
-        ),
         ],
       ),
     );
@@ -198,7 +312,11 @@ class ChatMessageDomain {
   final String content;
   final DateTime timestamp;
 
-  ChatMessageDomain({required this.role, required this.content, required this.timestamp});
+  ChatMessageDomain({
+    required this.role,
+    required this.content,
+    required this.timestamp,
+  });
 }
 
 class ChatConversation {
@@ -206,7 +324,11 @@ class ChatConversation {
   final String userId;
   final List<ChatMessageDomain> history;
 
-  ChatConversation({required this.id, required this.userId, required this.history});
+  ChatConversation({
+    required this.id,
+    required this.userId,
+    required this.history,
+  });
 
   DateTime? get lastMessageDate {
     if (history.isEmpty) return null;
@@ -226,41 +348,50 @@ class MongoChatRepository implements ChatRepository {
   final String connectionString;
   final String collectionName;
 
-  MongoChatRepository({required this.connectionString, required this.collectionName});
+  MongoChatRepository({
+    required this.connectionString,
+    required this.collectionName,
+  });
 
   @override
   Future<List<ChatConversation>> getConversations() async {
     final db = await mongo.Db.create(connectionString);
     await db.open();
     final coll = db.collection(collectionName);
-    
+
     // Traemos los documentos ordenados por ID (o podrías hacerlo por fecha)
     final docs = await coll.find().toList();
     await db.close();
 
-    return docs.map<ChatConversation?>((doc) { // Especificamos que el map puede devolver null
-      final String? userId = doc['user_id'] as String?;
+    return docs
+        .map<ChatConversation?>((doc) {
+          // Especificamos que el map puede devolver null
+          final String? userId = doc['user_id'] as String?;
 
-      // Si user_id es nulo o vacío, no creamos la conversación
-      if (userId == null || userId.isEmpty) {
-        return null;
-      }
+          // Si user_id es nulo o vacío, no creamos la conversación
+          if (userId == null || userId.isEmpty) {
+            return null;
+          }
 
-      final historyList = (doc['history'] as List?) ?? [];
-      final history = historyList.map((msg) {
-        return ChatMessageDomain(
-          role: msg['role'] ?? 'user',
-          content: msg['content'] ?? '',
-          timestamp: DateTime.tryParse(msg['timestamp'] ?? '') ?? DateTime.now(),
-        );
-      }).toList();
+          final historyList = (doc['history'] as List?) ?? [];
+          final history = historyList.map((msg) {
+            return ChatMessageDomain(
+              role: msg['role'] ?? 'user',
+              content: msg['content'] ?? '',
+              timestamp:
+                  DateTime.tryParse(msg['timestamp'] ?? '') ?? DateTime.now(),
+            );
+          }).toList();
 
-      return ChatConversation(
-        id: doc['_id'].toString(),
-        userId: userId, // Usamos el userId que ya sabemos que no es nulo ni vacío
-        history: history,
-      );
-    }).whereType<ChatConversation>().toList(); // Filtramos los valores nulos antes de convertir a lista
+          return ChatConversation(
+            id: doc['_id'].toString(),
+            userId:
+                userId, // Usamos el userId que ya sabemos que no es nulo ni vacío
+            history: history,
+          );
+        })
+        .whereType<ChatConversation>()
+        .toList(); // Filtramos los valores nulos antes de convertir a lista
   }
 }
 
@@ -281,7 +412,8 @@ class _MainScreenState extends State<MainScreen> {
   // TODO: REEMPLAZA ESTA URI Y COLECCIÓN CON TUS DATOS DE MONGODB
   final ChatRepository _chatRepository = MongoChatRepository(
     //connectionString: 'mongodb://rvadmin:RvSuperSecure%232025@62.171.141.232:27017/chatbot_db?authSource=admin',
-    connectionString: 'mongodb://navia:Zefiron1!@localhost:27017/chatbot_db?authSource=admin',
+    connectionString:
+        'mongodb://navia:Zefiron1!@localhost:27018/chatbot_db?authSource=admin',
     collectionName: 'conversations',
   );
 
@@ -294,17 +426,26 @@ class _MainScreenState extends State<MainScreen> {
         children: [
           const ChatScreen(), // Tab 0: El webchat original que ya tenías
           HistoryListScreen(repository: _chatRepository), // Tab 1: Nueva vista
+          const ConfigurationScreen(), // Tab 2: Nueva vista de configuración
         ],
       ),
       bottomNavigationBar: BottomNavigationBar(
-        backgroundColor: const Color(0xFF111111),
-        selectedItemColor: Colors.blue[300],
-        unselectedItemColor: Colors.white54,
+        backgroundColor: Colors.white,
+        selectedItemColor: const Color(0xFF075E54),
+        unselectedItemColor: Colors.grey,
         currentIndex: _currentIndex,
+        type: BottomNavigationBarType.fixed,
         onTap: (index) => setState(() => _currentIndex = index),
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.chat), label: 'Chat Actual'),
-          BottomNavigationBarItem(icon: Icon(Icons.history), label: 'Auditoría DB'),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.history),
+            label: 'Auditoría DB',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.settings),
+            label: 'Configuración',
+          ),
         ],
       ),
     );
@@ -338,14 +479,17 @@ class _HistoryListScreenState extends State<HistoryListScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: const Color(0xFF111111),
-        title: const Text('Historial de Conversaciones', style: TextStyle(color: Colors.white)),
+        backgroundColor: const Color(0xFF075E54),
+        title: const Text(
+          'Historial de Conversaciones',
+          style: TextStyle(color: Colors.white),
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.white),
             tooltip: 'Sincronizar ahora',
             onPressed: _loadConversations, // Botón de Refresh
-          )
+          ),
         ],
       ),
       body: FutureBuilder<List<ChatConversation>>(
@@ -354,9 +498,19 @@ class _HistoryListScreenState extends State<HistoryListScreen> {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           } else if (snapshot.hasError) {
-            return Center(child: Text('Error al conectar con la BD:\n${snapshot.error}', textAlign: TextAlign.center));
+            return Center(
+              child: Text(
+                'Error al conectar con la BD:\n${snapshot.error}',
+                textAlign: TextAlign.center,
+              ),
+            );
           } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            return const Center(child: Text('No hay conversaciones en la base de datos.', style: TextStyle(fontSize: 18)));
+            return const Center(
+              child: Text(
+                'No hay conversaciones en la base de datos.',
+                style: TextStyle(fontSize: 18),
+              ),
+            );
           }
 
           final chats = snapshot.data!;
@@ -371,16 +525,34 @@ class _HistoryListScreenState extends State<HistoryListScreen> {
 
               return ListTile(
                 leading: CircleAvatar(
-                  backgroundColor: Colors.blue[100],
-                  child: const Icon(Icons.person, color: Colors.blueGrey),
+                  backgroundColor: Colors.grey[300],
+                  child: const Icon(
+                    Icons.person,
+                    color: Colors.white,
+                    size: 30,
+                  ),
+                  radius: 24,
                 ),
-                title: Text('Usuario: ${chat.userId}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                subtitle: Text('Último mensaje: $dateStr'),
+                title: Text(
+                  chat.userId,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+                subtitle: Text(
+                  'Último mensaje: $dateStr',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
                 trailing: const Icon(Icons.arrow_forward_ios),
                 onTap: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => ReadOnlyChatScreen(conversation: chat)),
+                    MaterialPageRoute(
+                      builder: (context) =>
+                          ReadOnlyChatScreen(conversation: chat),
+                    ),
                   );
                 },
               );
@@ -399,10 +571,14 @@ class ReadOnlyChatScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFECE5DD),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF111111),
+        backgroundColor: const Color(0xFF075E54),
         iconTheme: const IconThemeData(color: Colors.white),
-        title: Text('Historial - ID: ${conversation.userId}', style: const TextStyle(color: Colors.white)),
+        title: Text(
+          'Historial - ID: ${conversation.userId}',
+          style: const TextStyle(color: Colors.white),
+        ),
       ),
       body: ListView.builder(
         padding: const EdgeInsets.all(10),
@@ -411,16 +587,41 @@ class ReadOnlyChatScreen extends StatelessWidget {
           final message = conversation.history[index];
           final isUser = message.role == 'user'; // Lógica para separar estilos
 
-          return ListTile(
-            title: Align(
+          return Padding(
+            padding: const EdgeInsets.symmetric(
+              vertical: 4.0,
+              horizontal: 14.0,
+            ),
+            child: Align(
               alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
               child: Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: isUser ? Colors.blue[100] : Colors.grey[200],
-                  borderRadius: BorderRadius.circular(10),
+                constraints: BoxConstraints(
+                  maxWidth: MediaQuery.of(context).size.width * 0.75,
                 ),
-                child: Text(message.content, style: const TextStyle(fontSize: 25.0)),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: isUser ? const Color(0xFFDCF8C6) : Colors.white,
+                  borderRadius: BorderRadius.only(
+                    topLeft: const Radius.circular(12),
+                    topRight: const Radius.circular(12),
+                    bottomLeft: Radius.circular(isUser ? 12 : 0),
+                    bottomRight: Radius.circular(isUser ? 0 : 12),
+                  ),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Colors.black12,
+                      blurRadius: 1,
+                      offset: Offset(0, 1),
+                    ),
+                  ],
+                ),
+                child: Text(
+                  message.content,
+                  style: const TextStyle(fontSize: 16.0, color: Colors.black87),
+                ),
               ),
             ),
           );
